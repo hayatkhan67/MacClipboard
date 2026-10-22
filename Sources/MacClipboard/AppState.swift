@@ -169,9 +169,9 @@ public final class AppState: ObservableObject {
         closeHandler()
         
         if autoPasteEnabled {
-            PasteSimulator.shared.paste(item: item, monitor: monitor) {
-                if !PasteSimulator.shared.isAccessibilityGranted {
-                    self.showToast("Copied! Press ⌘V to paste")
+            PasteSimulator.shared.paste(item: item, monitor: monitor) { granted in
+                if !granted {
+                    self.showToast("Copied! Enable Accessibility for auto-paste")
                 }
             }
         } else {

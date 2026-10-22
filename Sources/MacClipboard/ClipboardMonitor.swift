@@ -87,6 +87,25 @@ public final class ClipboardMonitor {
         
         // 2. Check for string
         if let string = pasteboard.string(forType: .string), !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\\ ", with: " ")
+            let imageExts: Set<String> = ["png", "jpg", "jpeg", "heic", "tiff", "gif", "webp"]
+            if trimmed.hasPrefix("/"), imageExts.contains(URL(fileURLWithPath: trimmed).pathExtension.lowercased()) {
+                if FileManager.default.fileExists(atPath: trimmed), let image = NSImage(contentsOfFile: trimmed) {
+                    if let saved = StorageManager.shared.saveImage(image) {
+                        let item = ClipItem(
+                            type: .image,
+                            imageFileName: saved.fileName,
+                            imageWidth: saved.width,
+                            imageHeight: saved.height,
+                            sourceAppName: appName ?? "Screenshot",
+                            sourceAppBundleId: bundleId
+                        )
+                        delegate?.clipboardDidCapture(item: item)
+                        return
+                    }
+                }
+            }
+            
             let clipType = categorize(string: string)
             let item = ClipItem(
                 type: clipType,

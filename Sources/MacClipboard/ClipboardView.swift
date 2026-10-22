@@ -13,6 +13,10 @@ public struct ClipboardView: View {
             VStack(spacing: 0) {
                 headerView
                 
+                if !PasteSimulator.shared.isAccessibilityGranted {
+                    accessibilityNoticeBar
+                }
+                
                 searchAndFilterBar
                 
                 Divider()
@@ -105,6 +109,35 @@ public struct ClipboardView: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 8)
+    }
+    
+    // MARK: - Accessibility Notice Bar
+    private var accessibilityNoticeBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.orange)
+            
+            Text("Enable Accessibility to auto-paste into apps")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            
+            Spacer()
+            
+            Button("Grant") {
+                PasteSimulator.shared.requestAccessibilityPermission()
+                PasteSimulator.shared.openAccessibilitySettings()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.mini)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
+        .cornerRadius(8)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
     }
     
     // MARK: - Search and Filters

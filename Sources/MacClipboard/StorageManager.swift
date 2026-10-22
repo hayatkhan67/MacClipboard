@@ -59,6 +59,10 @@ public final class StorageManager {
         }
     }
     
+    public func getImageURL(fileName: String) -> URL {
+        return imagesDirURL.appendingPathComponent(fileName)
+    }
+    
     public func saveImage(_ image: NSImage) -> (fileName: String, width: Double, height: Double)? {
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
