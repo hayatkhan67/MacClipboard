@@ -18,12 +18,16 @@ public final class AppState: ObservableObject {
     @AppStorage("launchAtLogin") public var launchAtLogin: Bool = false
     
     public let monitor = ClipboardMonitor()
+    public let screenshotWatcher = ScreenshotWatcher()
     private var toastWorkItem: DispatchWorkItem?
     
     public init() {
         self.clips = StorageManager.shared.loadHistory()
         self.monitor.delegate = self
         self.monitor.start()
+        
+        self.screenshotWatcher.delegate = self
+        self.screenshotWatcher.start()
         
         if let first = filteredClips.first {
             self.selectedClipId = first.id
@@ -228,6 +232,12 @@ public final class AppState: ObservableObject {
 
 extension AppState: ClipboardMonitorDelegate {
     public func clipboardDidCapture(item: ClipItem) {
+        addClip(item)
+    }
+}
+
+extension AppState: ScreenshotWatcherDelegate {
+    public func screenshotWatcherDidDetect(item: ClipItem) {
         addClip(item)
     }
 }

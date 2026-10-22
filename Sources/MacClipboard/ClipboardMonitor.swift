@@ -99,17 +99,36 @@ public final class ClipboardMonitor {
     }
     
     private func readImageFromPasteboard() -> NSImage? {
-        guard let types = pasteboard.types else { return nil }
-        let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff]
-        let hasImage = types.contains { imageTypes.contains($0) }
-        guard hasImage else { return nil }
+        // 1. Try reading directly via NSImage pasteboard initializer
+        if let image = NSImage(pasteboard: pasteboard) {
+            return image
+        }
         
+        // 2. Try reading NSImage objects
+        if let objects = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage], let first = objects.first {
+            return first
+        }
+        
+        // 3. Try reading image file URLs (e.g. copied screenshot or image file in Finder)
+        let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "tiff", "gif", "webp", "bmp", "ico"]
+        if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
+            for url in fileURLs {
+                if imageExtensions.contains(url.pathExtension.lowercased()) {
+                    if let image = NSImage(contentsOf: url) {
+                        return image
+                    }
+                }
+            }
+        }
+        
+        // 4. Try raw data types
         if let data = pasteboard.data(forType: .png), let image = NSImage(data: data) {
             return image
         }
         if let data = pasteboard.data(forType: .tiff), let image = NSImage(data: data) {
             return image
         }
+        
         return nil
     }
     

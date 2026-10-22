@@ -27,5 +27,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationWillTerminate(_ notification: Notification) {
         HotKeyManager.shared.unregisterAll()
         appState.monitor.stop()
+        appState.screenshotWatcher.stop()
     }
 }
