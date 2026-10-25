@@ -4,6 +4,14 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
+# Local, untracked file where you can set CODESIGN_IDENTITY to your own
+# signing identity (see build.local.env.example). Falls back to ad-hoc
+# signing if not set, so this script carries no personal identity info.
+if [ -f "$DIR/build.local.env" ]; then
+    source "$DIR/build.local.env"
+fi
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+
 BUILD_MODE="release"
 if [ "$1" == "--debug" ]; then
     BUILD_MODE="debug"
@@ -76,7 +84,7 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
 EOF
 
 echo "==> Signing application bundle..."
-codesign --force --deep --sign "REDACTED" "$APP_DIR"
+codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_DIR"
 
 mkdir -p "$TARGET_APPS_DIR"
 rm -rf "$TARGET_APPS_DIR/$APP_NAME"
