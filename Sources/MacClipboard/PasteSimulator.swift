@@ -122,12 +122,7 @@ public final class PasteSimulator {
     }
     
     private func simulateCmdV() {
-        // Method 1: AppleScript through System Events (native, works across all Mac and Chromium apps)
-        let script = NSAppleScript(source: "tell application \"System Events\" to keystroke \"v\" using command down")
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
-        
-        // Method 2: CGEvent with explicit Command modifier press
+        // CGEvent with explicit Command modifier press
         let source = CGEventSource(stateID: .combinedSessionState)
         let kVK_Command: CGKeyCode = 0x37
         let kVK_ANSI_V: CGKeyCode = 0x09

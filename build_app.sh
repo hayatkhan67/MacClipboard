@@ -76,7 +76,7 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
 EOF
 
 echo "==> Signing application bundle..."
-codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || true
+codesign --force --deep --sign "REDACTED" "$APP_DIR"
 
 mkdir -p "$TARGET_APPS_DIR"
 rm -rf "$TARGET_APPS_DIR/$APP_NAME"
