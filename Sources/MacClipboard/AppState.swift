@@ -75,6 +75,11 @@ public final class AppState: ObservableObject {
                     if let i1 = old.imageFileName, let i2 = item.imageFileName, i1 == i2 {
                         return true
                     }
+                    if old.type == .image, let w1 = old.imageWidth, let w2 = item.imageWidth,
+                       let h1 = old.imageHeight, let h2 = item.imageHeight,
+                       w1 == w2 && h1 == h2 && abs(old.createdAt.timeIntervalSince(item.createdAt)) < 15 {
+                        return true
+                    }
                 }
                 return false
             }) {

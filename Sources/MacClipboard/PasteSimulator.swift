@@ -19,7 +19,7 @@ public final class PasteSimulator {
         ) { [weak self] notification in
             Task { @MainActor in
                 if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-                    if app.bundleIdentifier != Bundle.main.bundleIdentifier {
+                    if app.bundleIdentifier != Bundle.main.bundleIdentifier && app.activationPolicy == .regular {
                         self?.previousApp = app
                     }
                 }
@@ -29,8 +29,8 @@ public final class PasteSimulator {
     
     public func recordFrontmostApp() {
         let current = NSWorkspace.shared.frontmostApplication
-        if current?.bundleIdentifier != Bundle.main.bundleIdentifier {
-            self.previousApp = current
+        if let app = current, app.bundleIdentifier != Bundle.main.bundleIdentifier && app.activationPolicy == .regular {
+            self.previousApp = app
         }
     }
     
@@ -59,19 +59,19 @@ public final class PasteSimulator {
             if let fileName = item.imageFileName {
                 let fileURL = StorageManager.shared.getImageURL(fileName: fileName)
                 if let image = StorageManager.shared.loadImage(fileName: fileName) {
-                    // Write PNG representation
+                    // 1. Write PNG representation
                     if let tiffData = image.tiffRepresentation,
                        let bitmap = NSBitmapImageRep(data: tiffData),
                        let pngData = bitmap.representation(using: .png, properties: [:]) {
                         pasteboard.setData(pngData, forType: .png)
                     }
                     
-                    // Write TIFF representation
+                    // 2. Write TIFF representation
                     if let tiffData = image.tiffRepresentation {
                         pasteboard.setData(tiffData, forType: .tiff)
                     }
                     
-                    // Write file URL representation
+                    // 3. Write file URL representation
                     pasteboard.writeObjects([fileURL as NSURL, image])
                 }
             }
@@ -91,42 +91,62 @@ public final class PasteSimulator {
     public func paste(item: ClipItem, monitor: ClipboardMonitor, completion: ((Bool) -> Void)? = nil) {
         copyToPasteboard(item: item, monitor: monitor)
         
-        // Reactivate target app
-        let targetApp = previousApp
-        if let app = targetApp, !app.isTerminated {
-            app.activate(options: [.activateIgnoringOtherApps])
-        }
-        
         let granted = isAccessibilityGranted
         if !granted {
             requestAccessibilityPermission()
+            openAccessibilitySettings()
+            completion?(false)
+            return
         }
         
-        // Allow the target window ~160ms to accept focus
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+        // Find target app
+        var targetApp = previousApp
+        if targetApp == nil || targetApp?.isTerminated == true || targetApp?.bundleIdentifier == Bundle.main.bundleIdentifier {
+            let regularApps = NSWorkspace.shared.runningApplications.filter {
+                $0.activationPolicy == .regular &&
+                $0.bundleIdentifier != Bundle.main.bundleIdentifier &&
+                !$0.isTerminated
+            }
+            targetApp = regularApps.first
+        }
+        
+        if let app = targetApp, !app.isTerminated {
+            app.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+        }
+        
+        // Wait 150ms for target window focus to settle, then simulate Cmd+V
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             self.simulateCmdV()
-            completion?(granted)
+            completion?(true)
         }
     }
     
     private func simulateCmdV() {
+        // Method 1: AppleScript through System Events (native, works across all Mac and Chromium apps)
+        let script = NSAppleScript(source: "tell application \"System Events\" to keystroke \"v\" using command down")
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        
+        // Method 2: CGEvent with explicit Command modifier press
         let source = CGEventSource(stateID: .combinedSessionState)
-        let keyCode: CGKeyCode = 9 // ANSI 'V'
+        let kVK_Command: CGKeyCode = 0x37
+        let kVK_ANSI_V: CGKeyCode = 0x09
         
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-            return
-        }
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: kVK_Command, keyDown: true)
+        cmdDown?.flags = .maskCommand
         
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
+        let vDown = CGEvent(keyboardEventSource: source, virtualKey: kVK_ANSI_V, keyDown: true)
+        vDown?.flags = .maskCommand
         
-        // Post to session tap first (works for current user session)
-        keyDown.post(tap: .cgSessionEventTap)
-        keyUp.post(tap: .cgSessionEventTap)
+        let vUp = CGEvent(keyboardEventSource: source, virtualKey: kVK_ANSI_V, keyDown: false)
+        vUp?.flags = .maskCommand
         
-        // Also post to HID tap as backup
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: kVK_Command, keyDown: false)
+        cmdUp?.flags = []
+        
+        cmdDown?.post(tap: .cgAnnotatedSessionEventTap)
+        vDown?.post(tap: .cgAnnotatedSessionEventTap)
+        vUp?.post(tap: .cgAnnotatedSessionEventTap)
+        cmdUp?.post(tap: .cgAnnotatedSessionEventTap)
     }
 }

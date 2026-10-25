@@ -9,60 +9,61 @@ public protocol ScreenshotWatcherDelegate: AnyObject {
 @MainActor
 public final class ScreenshotWatcher {
     public weak var delegate: ScreenshotWatcherDelegate?
-    private var source: DispatchSourceFileSystemObject?
-    private var directoryFileDescriptor: Int32 = -1
+    private var sources: [DispatchSourceFileSystemObject] = []
+    private var fileDescriptors: [Int32] = []
     private var processedFileNames: Set<String> = []
+    private var pollTimer: Timer?
     public var isEnabled: Bool = true
     
     public init() {
-        // Pre-populate with existing screenshot files older than 15 minutes
-        let dir = getScreenshotDirectory()
         let cutoffDate = Date().addingTimeInterval(-15 * 60)
-        
-        if let urls = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) {
-            for url in urls where isScreenshotFile(url) {
-                let modDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                if modDate < cutoffDate {
-                    self.processedFileNames.insert(url.lastPathComponent)
-                }
-            }
+        for dir in getWatchDirectories() {
+            scanDirectoryForExisting(dir, cutoffDate: cutoffDate)
         }
     }
     
     public func start() {
         stop()
-        let dir = getScreenshotDirectory()
         
-        // Ingest any recent screenshots from the last 15 minutes immediately on start
         checkForNewScreenshots()
         
-        directoryFileDescriptor = open(dir.path, O_EVTONLY)
-        guard directoryFileDescriptor >= 0 else { return }
-        
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: directoryFileDescriptor,
-            eventMask: [.write, .extend, .attrib],
-            queue: DispatchQueue.main
-        )
-        
-        source.setEventHandler { [weak self] in
-            self?.checkForNewScreenshots()
-        }
-        
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.directoryFileDescriptor, fd >= 0 {
-                close(fd)
-                self?.directoryFileDescriptor = -1
+        for dir in getWatchDirectories() {
+            let fd = open(dir.path, O_EVTONLY)
+            if fd >= 0 {
+                fileDescriptors.append(fd)
+                let source = DispatchSource.makeFileSystemObjectSource(
+                    fileDescriptor: fd,
+                    eventMask: [.write, .extend, .attrib],
+                    queue: DispatchQueue.main
+                )
+                source.setEventHandler { [weak self] in
+                    self?.checkForNewScreenshots()
+                }
+                source.resume()
+                sources.append(source)
             }
         }
         
-        source.resume()
-        self.source = source
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.checkForNewScreenshots()
+            }
+        }
     }
     
     public func stop() {
-        source?.cancel()
-        source = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
+        
+        for source in sources {
+            source.cancel()
+        }
+        sources.removeAll()
+        
+        for fd in fileDescriptors {
+            close(fd)
+        }
+        fileDescriptors.removeAll()
     }
     
     public func getScreenshotDirectory() -> URL {
@@ -76,6 +77,14 @@ public final class ScreenshotWatcher {
         return FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSHomeDirectory() + "/Desktop")
     }
     
+    private func getWatchDirectories() -> [URL] {
+        var dirs: [URL] = [getScreenshotDirectory()]
+        if let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+            dirs.append(downloads)
+        }
+        return dirs
+    }
+    
     private func isScreenshotFile(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
         let ext = url.pathExtension.lowercased()
@@ -85,9 +94,24 @@ public final class ScreenshotWatcher {
         return name.hasPrefix("screenshot") || name.hasPrefix("screen shot") || name.contains("screenshot")
     }
     
+    private func scanDirectoryForExisting(_ dir: URL, cutoffDate: Date) {
+        guard let urls = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        for url in urls where isScreenshotFile(url) {
+            let modDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            if modDate < cutoffDate {
+                processedFileNames.insert(url.lastPathComponent)
+            }
+        }
+    }
+    
     private func checkForNewScreenshots() {
         guard isEnabled else { return }
-        let dir = getScreenshotDirectory()
+        for dir in getWatchDirectories() {
+            checkDirectory(dir)
+        }
+    }
+    
+    private func checkDirectory(_ dir: URL) {
         guard let urls = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
         
         for fileURL in urls where isScreenshotFile(fileURL) {
@@ -95,8 +119,8 @@ public final class ScreenshotWatcher {
             if !processedFileNames.contains(fileName) {
                 processedFileNames.insert(fileName)
                 
-                // Allow OS 300ms to finish writing the screenshot file to disk
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                // Allow OS a brief 100ms moment to finish writing
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                     guard let self = self else { return }
                     guard let image = NSImage(contentsOf: fileURL) else { return }
                     
